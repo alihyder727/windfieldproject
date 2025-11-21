@@ -1,0 +1,12 @@
+/prvt/cirs12/spex/2017jul10/5.10/jupiter/jcf0011900121.cmap.gz
+/prvt/cirs12/spex/2017jul11/5.10/jupiter/jcf0031300328.cmap.gz
+/prvt/cirs12/spex/2017jul11/5.10/jupiter/jcf0056700568.cmap.gz
+/prvt/cirs12/spex/2017jul11/5.10/jupiter/jcf0061300628.cmap.gz
+/prvt/cirs12/spex/2017jul11/5.10/jupiter/jcf0078100784.cmap.gz
+/prvt/cirs12/spex/2017jul11/5.10/jupiter/jcf0082300841.cmap.gz
+/prvt/cirs12/spex/2017jul11/5.10/jupiter/jcf08230828.cmap.gz
+/prvt/cirs12/spex/2017may19/5.10/jupiter/jcf031065.cmap.gz
+/prvt/cirs12/spex/2017may19/5.10/jupiter/jcf161195.cmap.gz
+/prvt/cirs12/spex/2017may19/5.10/jupiter/jcf343377.cmap.gz
+/prvt/cirs12/spex/2017may20/5.10/jupiter/jcf031065.cmap.gz
+/prvt/cirs12/spex/2017may20/5.10/jupiter/jcf149181.cmap.gz

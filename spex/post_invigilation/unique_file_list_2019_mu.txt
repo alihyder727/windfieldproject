@@ -1,0 +1,14 @@
+/prvt/juno1/spex/2019jan16/images/5.10/jupiter/jc008026.mu.gz
+/prvt/juno1/spex/2019jan16/images/5.10/jupiter/jc11471172.mu.gz
+/prvt/juno1/spex/2019jan16/images/5.10/jupiter/jc12271254.mu.gz
+/prvt/juno1/spex/2019jan16/images/5.10/jupiter/jc756782.mu.gz
+/prvt/juno1/spex/2019jan16/images/5.10/jupiter/jc825860.mu.gz
+/prvt/juno1/spex/2019jan16/images/5.10/jupiter/jc8911014.mu.gz
+/prvt/juno1/spex/2019jan16/images/5.10/jupiter/jc925038.mu.gz
+/prvt/juno1/spex/2019jan17/images/5.10/jupiter/jc015034.mu.gz
+/prvt/juno1/spex/2019jan17/images/5.10/jupiter/jc069094.mu.gz
+/prvt/juno1/spex/2019jan17/images/5.10/jupiter/jc181206.mu.gz
+/prvt/juno1/spex/2019jan17/images/5.10/jupiter/jc249282.mu.gz
+/prvt/juno1/spex/2019jan17/images/5.10/jupiter/jc383426.mu.gz
+/prvt/juno1/spex/2019jan17/images/5.10/jupiter/jc469502.mu.gz
+/prvt/juno1/spex/2019jan17/images/5.10/jupiter/jc953894.mu.gz

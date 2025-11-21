@@ -1,0 +1,15 @@
+/prvt/juno1/spex/2020dec23/images/5.10/jupiter/jc647666.mu.gz
+/prvt/juno1/spex/2020dec23/images/5.10/jupiter/jc721738.mu.gz
+/prvt/juno1/spex/2020dec24/images/5.10/jupiter/jc001020.mu.gz
+/prvt/juno1/spex/2020dec24/images/5.10/jupiter/jc061096.mu.gz
+/prvt/juno1/spex/2020dec24/images/5.10/jupiter/jc155168.mu.gz
+/prvt/juno1/spex/2020jul4/images/5.10/jupiter/jc039069.mu.gz
+/prvt/juno1/spex/2020jul4/images/5.10/jupiter/jc683718.mu.gz
+/prvt/juno1/spex/2020jul5/images/5.10/jupiter/jc001010.mu.gz
+/prvt/juno1/spex/2020jul5/images/5.10/jupiter/jc041076.mu.gz
+/prvt/juno1/spex/2020jul5/images/5.10/jupiter/jc613648.mu.gz
+/prvt/juno1/spex/2020nov10/images/5.10/jupiter/jc633668.mu.gz
+/prvt/juno1/spex/2020nov11/images/5.10/jupiter/jc041076.mu.gz
+/prvt/juno1/spex/2020nov7/images/5.10/jupiter/jc585602.mu.gz
+/prvt/juno1/spex/2020nov7/images/5.10/jupiter/jc689700.mu.gz
+/prvt/juno1/spex/2020nov8/images/5.10/jupiter/jc183206.mu.gz

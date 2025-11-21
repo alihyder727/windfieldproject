@@ -1,0 +1,10 @@
+/prvt/cirs12/spex/2016may11/images/5.10/jupiter/jcf0053300544.mu.gz
+/prvt/cirs12/spex/2016may11/images/5.10/jupiter/jcf0057500592.mu.gz
+/prvt/cirs12/spex/2016may11/images/5.10/jupiter/jcf0072300740.mu.gz
+/prvt/cirs12/spex/2016may12/images/5.10/jupiter/jcf0000100008.mu.gz
+/prvt/cirs12/spex/2016may12/images/5.10/jupiter/jcf0003100048.mu.gz
+/prvt/cirs12/spex/2016may12/images/5.10/jupiter/jcf0009900116.mu.gz
+/prvt/cirs12/spex/2016may12/images/5.10/jupiter/jcf0017700194.mu.gz
+/prvt/cirs12/spex/2016nov1/5.10/jupiter/jcf0022700356.mu.gz
+/prvt/cirs12/spex/2016nov2/5.10/jupiter/jcf0000100014.mu.gz
+/prvt/cirs12/spex/2016nov2/5.10/jupiter/jcf0003700060.mu.gz
