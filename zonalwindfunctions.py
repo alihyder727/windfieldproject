@@ -22,7 +22,7 @@ import scipy as sp
 import datetime
 # import csv
 # import os
-
+from scipy import fftpack, ndimage, stats, signal
 
 R_J   = 71492e3 # m
 R_J_p = 66854e3 # m
@@ -449,7 +449,7 @@ class ZWP_Class:
         
         print('possible shifts :', num_of_possible_shifts, 'window len in pix', sliding_window_len_in_pixels, 'window step in pix', window_step_in_pixels, 'loc 0, -1, and diff. ', loc[0], loc[-1], loc[-1]-loc[0])
         
-        while RHS_bound + sliding_window_len_in_pixels <= loc[-1]:# and in_func_counter < num_of_possible_shifts:
+        while RHS_bound + sliding_window_len_in_pixels <= loc[-1]:
             aux_bool = np.zeros_like(margin_applied_in_func_shifted)
             aux_bool[RHS_bound + 1:RHS_bound + 1 + sliding_window_len_in_pixels] = 1
             RHS_bound += window_step_in_pixels
@@ -500,6 +500,146 @@ class ZWP_Class:
             in_func_counter += 1
         print('final in_func_counter: ', in_func_counter)
         return delta_long_in_lat_slide, max_corr_lim_slide
+    
+    @staticmethod
+    def detrend_ignore_nan(x):
+        x = np.asarray(x, float)
+        mask = ~np.isnan(x)
+        if mask.sum() < 2:
+            return x  # not enough points to detrend; return as-is
+        # detrend valid part
+        x_valid = signal.detrend(x[mask], type='linear')
+        out = x.copy()
+        out[mask] = x_valid
+        return out
+
+    @staticmethod
+    def spectral_entropy_1d(x, eps=1e-12):
+        # power spectrum (one-sided)
+        X = np.abs(fftpack.fft(x))**2
+        X = X[:len(X)//2]
+        P = X / (X.sum() + eps)
+        H = -np.sum(P * np.log(P + eps))
+        # normalize entropy to [0,1] by dividing by log(N)
+        return H / np.log(len(P) + eps)
+
+    @staticmethod
+    def hf_power_fraction(x, cutoff_frac=0.5):
+        # fraction of power above cutoff_frac * Nyquist (0..1)
+        N = len(x)
+        X = np.abs(fftpack.fft(x))**2
+        Xh = X[:N//2]
+        cutoff_idx = int(np.floor(cutoff_frac * len(Xh)))
+        if cutoff_idx < 1:
+            return 0.0
+        return Xh[cutoff_idx:].sum() / (Xh.sum() + 1e-12)
+
+    @staticmethod
+    def laplacian_energy(x):
+        # mean energy of second difference - actually not really a laplacian energy per se...
+        d2 = np.diff(x, n=2)
+        return np.mean(d2**2)
+
+    @staticmethod
+    def total_variation(x):
+        return np.mean(np.abs(np.diff(x)))
+
+    @staticmethod
+    def mad(x):
+        return np.median(np.abs(x - np.median(x)))
+
+    @staticmethod
+    def robust_scale_norm(arr):
+        # map arr to roughly 0..1 using median/IQR then sigmoid
+        med = np.median(arr)
+        q1, q3 = np.percentile(arr, [25,75])
+        iqr = max(q3 - q1, 1e-12)
+        z = (arr - med) / iqr
+        # use a sigmoid to compress
+        return 1.0 / (1.0 + np.exp(-z))
+    
+    @staticmethod
+    def irregularity_scores(image, smooth_sigmas=(0.0, 1.0, 3.0), hf_cutoff_frac=0.4, lat_smooth_sigma=1.0):
+        """
+        image : 2D numpy array of shape (n_lat, n_lon)
+        smooth_sigmas : sequence of gaussian sigmas to try (multi-scale)
+        returns: score vector length n_lat (0..1)
+        """
+        n_lat, n_lon = image.shape
+        # store metrics per-latitude
+        m_std = np.zeros(n_lat)
+        m_mad = np.zeros(n_lat)
+        m_tv = np.zeros(n_lat)
+        m_lap_ms = np.zeros(n_lat)
+        m_hf = np.zeros(n_lat)
+        m_kurt = np.zeros(n_lat)
+        m_peakcount = np.zeros(n_lat)
+
+        for i in range(n_lat):
+            row = image[i, :].astype(float)
+            # baseline detrend (optional) to remove large-scale gradient:
+            # row_d = signal.detrend(row, type='linear')
+            row_d = ZWP_Class.detrend_ignore_nan(row)
+
+            # simple metrics:
+            m_std[i] = np.std(row_d)
+            m_mad[i] = ZWP_Class.mad(row_d)
+            m_tv[i] = ZWP_Class.total_variation(row_d)
+            m_kurt[i] = stats.kurtosis(row_d, fisher=True, bias=False)  # Fisher => 0 for Gaussian
+
+            # peak count as simple heuristic
+            peaks, props = signal.find_peaks(row_d, height=np.std(row_d)*0.5, distance=max(1, n_lon//50))
+            m_peakcount[i] = len(peaks)
+
+            # laplacian energy at multiple scales (to capture narrow and broad)
+            lap_vals = []
+            for sigma in smooth_sigmas:
+                if sigma > 0.0:
+                    r_s = ndimage.gaussian_filter1d(row_d, sigma=sigma, mode='reflect')
+                else:
+                    r_s = row_d
+                lap_vals.append(ZWP_Class.laplacian_energy(r_s))
+            m_lap_ms[i] = np.max(lap_vals)  # max across scales
+
+            # HF power fraction
+            m_hf[i] = ZWP_Class.hf_power_fraction(row_d, cutoff_frac=hf_cutoff_frac)
+
+        # Normalize each metric robustly to 0..1
+        n_std = ZWP_Class.robust_scale_norm(m_std)
+        n_mad = ZWP_Class.robust_scale_norm(m_mad)
+        n_tv = ZWP_Class.robust_scale_norm(m_tv)
+        n_lap = ZWP_Class.robust_scale_norm(m_lap_ms)
+        n_hf = ZWP_Class.robust_scale_norm(m_hf)
+        # kurtosis can be negative; map via absolute then norm
+        n_kurt = ZWP_Class.robust_scale_norm(np.abs(m_kurt))
+        n_peaks = ZWP_Class.robust_scale_norm(m_peakcount)
+
+        # Combine: give more weight to metrics that detect spikes (lap, tv, hf, kurt)
+        weights = {
+            'std': 0.15,
+            'mad': 0.10,
+            'tv': 0.15,
+            'lap': 0.25,
+            'hf': 0.2,
+            'kurt': 0.1,
+            'peaks': 0.05
+        }
+        # compute weighted sum - this is kind of arbitrary but worth playing around with...test each individually by adjusting specific weights...
+        combined = (weights['std'] * n_std +
+                    weights['mad'] * n_mad +
+                    weights['tv'] * n_tv +
+                    weights['lap'] * n_lap +
+                    weights['hf'] * n_hf +
+                    weights['kurt'] * n_kurt +
+                    weights['peaks'] * n_peaks)
+
+        # optional smooth across latitudes to reduce single-lat noise
+        if lat_smooth_sigma > 0:
+            combined = ndimage.gaussian_filter1d(combined, sigma=lat_smooth_sigma, mode='reflect')
+
+        # clip to 0..1
+        combined = np.clip(combined, 0.0, 1.0)
+        return combined
     
     @staticmethod
     def getFullLatitudinalCorrelation(cyl_map1, cyl_map2, long_array, lat_array, shift_long=90, crit_lat=60, margin=3, max_delta_long=10, force_shift=False, sliding_window_boolean=False, sliding_window_len=30, window_step=1, lat_res_tol=1e-2):
