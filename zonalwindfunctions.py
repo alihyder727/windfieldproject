@@ -320,188 +320,6 @@ class ZWP_Class:
             raise ValueError("Select appropriate filter type: 'savgol', 'median'")
 
     @staticmethod
-    def generateErrors(shifted_f1, shifted_f2, estimated_lag, lat_array, lat_delta_indices, margin_applied_in_func_shifted, max_lag, delta_long_step):
-        
-        # use the mean lag for the full pair (remove the sliding window dependence if it exists)
-        if len(estimated_lag.shape) == 2:
-            # estimated_lag is in ∆-longitudes so divide by delta_long_step to get back to ∆-pixels
-            estimated_lag_across_lat = np.mean(estimated_lag, axis=1) / delta_long_step
-        else:
-            estimated_lag_across_lat = estimated_lag / delta_long_step
-            
-        error_array = np.zeros(len(lat_array))
-        fwhm_array  = np.zeros(len(lat_array))
-        
-        for l in range(len(lat_array[lat_delta_indices[0]:lat_delta_indices[1]])):
-            A = shifted_f1[l+lat_delta_indices[0], margin_applied_in_func_shifted.astype(bool)]
-            B = shifted_f2[l+lat_delta_indices[0], margin_applied_in_func_shifted.astype(bool)]
-            
-            # shift A forward by ∆-pix//2:
-            A_prime = np.roll(A, shift = -int(estimated_lag_across_lat[l+lat_delta_indices[0]] / 2))
-            # shift B backwards by ∆-pix//2:
-            B_prime = np.roll(B, shift = int(estimated_lag_across_lat[l+lat_delta_indices[0]] / 2))
-            
-            # Standardize the primes for correlation test...
-            A_prime_mean, A_prime_std = np.mean(A_prime), np.std(A_prime)
-            B_prime_mean, B_prime_std = np.mean(B_prime), np.std(B_prime)
-            A_prime_norm = (A_prime - A_prime_mean) / A_prime_std
-            B_prime_norm = (B_prime - B_prime_mean) / B_prime_std
-
-            # conventional normalization if needed. Uncomment if using the following and comment above...
-            # A_prime_norm = A_prime/np.nanmax(A_prime)
-            # B_prime_norm = B_prime/np.nanmax(B_prime)
-            
-            # Compute cross-correlation between the half-shifted arrays
-            correlation_result = correlate(A_prime_norm, B_prime_norm, mode='full', method='auto')
-            lags = np.arange(-len(A_prime) + 1, len(B_prime)) # total amount of possible lags that can be investigate prior to max_lag limit
-            
-            # Apply max lag threshold
-            valid_indices = (lags >= -max_lag) & (lags <= max_lag)
-            correlation_limited = correlation_result[valid_indices]
-            lags_limited = lags[valid_indices]
-            
-            # Find the lag where correlation peaks (error in estimated shift)
-            error_in_estimated_lag_across_lat_in_pix = lags_limited[np.argmax(correlation_limited)]
-            
-            # Convert to ∆-longitude uncertainty and populate output array
-            error_array[l+lat_delta_indices[0]] = error_in_estimated_lag_across_lat_in_pix * delta_long_step
-            
-            # Compute Full Width at Half Maximum (FWHM) as a more appropriate measure of confidence
-            half_max = np.max(correlation_limited) / 2
-            fwhm_lags = lags_limited[correlation_limited > half_max] # indices where the correlation is above the FWHM
-            # 'fwhm' is the pixel range of the peak correlation - shows how unsure it is by capturing the extent of the spread
-            fwhm_in_pix = np.max(fwhm_lags) - np.min(fwhm_lags) if len(fwhm_lags) > 1 else 0 # Zero if peak is very well defined
-            # fwhm_in_degrees
-            fwhm_array[l+lat_delta_indices[0]] = fwhm_in_pix * delta_long_step
-
-        return error_array, fwhm_array
-    
-    @staticmethod
-    def fullCorrelation(shifted_f1, shifted_f2, lat_array, lat_delta_indices, margin_applied_in_func_shifted, final_longitudes_masked_shifted, max_lag, max_corr_lim, delta_long_in_lat, delta_long_step):
-
-        # Main correlation loop...sort of like a kai-square minimization.
-        # Within these latidude range, the values are defined and away from the NaNs
-        print('Entered sub function')
-        for l in range(len(lat_array[lat_delta_indices[0]:lat_delta_indices[1]])):
-            # the .astype(bool) just converts the [0, 0, 1, 1] to [False, False, True, True]
-            shifted_f1_valid = shifted_f1[l+lat_delta_indices[0], margin_applied_in_func_shifted.astype(bool)]
-            shifted_f2_valid = shifted_f2[l+lat_delta_indices[0], margin_applied_in_func_shifted.astype(bool)]
-            # valid_longitudes = final_longitudes_masked_shifted[margin_applied_in_func_shifted.astype(bool)]
-            
-            # Compute mean and standard deviation of valid values (for single lat)
-            f1_mean, f2_mean = np.mean(shifted_f1_valid), np.mean(shifted_f2_valid)
-            f1_std, f2_std   = np.std(shifted_f1_valid), np.std(shifted_f2_valid)
-            
-            # Standardize valid data
-            f1_normalized = (shifted_f1_valid - f1_mean) / f1_std
-            f2_normalized = (shifted_f2_valid - f2_mean) / f2_std
-
-            # Normalize valid data using conventional normalization method. Comment if not using and vice versa with above...
-            # f1_normalized = shifted_f1_valid / np.nanmax(shifted_f1_valid)
-            # f2_normalized = shifted_f2_valid / np.nanmax(shifted_f2_valid)
-    
-            # Perform 1D cross-correlation between the two normalized maps
-            corr = correlate(f1_normalized, f2_normalized, mode='full', method='auto')
-            lags = np.arange(-len(shifted_f1_valid) + 1, len(shifted_f2_valid))
-    
-            # Limit the lag range using the physical limit argument
-            lag_limit_indices = (lags >= -max_lag) & (lags <= max_lag)
-            corr_limited      = corr[lag_limit_indices]
-            lags_limited      = lags[lag_limit_indices]
-            
-            # Find the lag with maximum correlation
-            max_corr_index = np.argmax(corr_limited) # index of best correlative strength within the physically limited lag range
-            best_lag       = lags_limited[max_corr_index]
-            
-            # save the maximum correlation coefficient as a measure of confidence
-            pearson_corr = np.corrcoef(f1_normalized, f2_normalized)[0, 1]
-            max_corr_lim[l+lat_delta_indices[0]] = pearson_corr #np.max(corr_limited)
-    
-            # Compute the angular shift; convert from pixel lag to a physical lag
-            delta_long_in_lat[l+lat_delta_indices[0]] = best_lag * delta_long_step  # Assumes uniform spacing
-        
-        return delta_long_in_lat, max_corr_lim
-    
-    
-    @staticmethod
-    def SlidingWindowCorrelation(sliding_window_len, window_step, shifted_f1, shifted_f2, lat_array, lat_delta_indices, margin_applied_in_func_shifted, final_longitudes_masked_shifted, max_lag, delta_long_step):
-        '''
-        Enter if using the sliding window approach. A smaller window is defined within each image pair using 
-        margin_applied_in_func_shifted. Each window will result in an individual correlation
-        '''
-        window_step_in_pixels        = int(np.ceil(window_step / delta_long_step))
-        sliding_window_len_in_pixels = int(np.ceil(sliding_window_len / delta_long_step))  
-        # print(window_step_in_pixels, sliding_window_len_in_pixels)
-        
-        # indices of where the full longitude range is defined post-margin and shift.
-        loc = np.where(abs(np.diff(margin_applied_in_func_shifted)) == 1)[0]
-        # how many shifts are possible given the sliding window size and the size of the slide
-        num_of_possible_shifts = (loc[-1] - loc[0] - sliding_window_len_in_pixels) // window_step_in_pixels
-        
-        # in_func_counter always ends up being 110 (for sliding_window_len=30) as both, sliding_window_len_in_pixels and 
-        # window_step_in_pixels are increased when the resolution is increased. So the amount of steps is the same.
-        # +1 is needed because num_of_possible_shifts is 109 (excludes the final step so it must be added explicitly).
-        delta_long_in_lat_slide = np.zeros((len(lat_array), num_of_possible_shifts + 1))
-        max_corr_lim_slide      = np.zeros((len(lat_array), num_of_possible_shifts + 1))
-        
-        in_func_counter = 0 # serves as the primary index for the num_of_possible_shifts since we have used a while loop
-        RHS_bound = loc[0] # right bound of sliding window
-        
-        print('possible shifts :', num_of_possible_shifts, 'window len in pix', sliding_window_len_in_pixels, 'window step in pix', window_step_in_pixels, 'loc 0, -1, and diff. ', loc[0], loc[-1], loc[-1]-loc[0])
-        
-        while RHS_bound + sliding_window_len_in_pixels <= loc[-1]:
-            aux_bool = np.zeros_like(margin_applied_in_func_shifted)
-            aux_bool[RHS_bound + 1:RHS_bound + 1 + sliding_window_len_in_pixels] = 1
-            RHS_bound += window_step_in_pixels
-            # print(in_func_counter, RHS_bound)
-            
-            # Main correlation loop...sort of like a kai-square minimization - being used for each window here
-            # Within these latidude range, the values are defined and away from the NaNs
-            for l in range(len(lat_array[lat_delta_indices[0]:lat_delta_indices[1]])):
-                # the .astype(bool) just converts the [0, 0, 1, 1] to [False, False, True, True]
-                shifted_f1_valid = shifted_f1[l+lat_delta_indices[0], aux_bool.astype(bool)]
-                shifted_f2_valid = shifted_f2[l+lat_delta_indices[0], aux_bool.astype(bool)]
-                # valid_longitudes = final_longitudes_masked_shifted[margin_applied_in_func_shifted.astype(bool)]
-                
-                # Compute mean and standard deviation of valid values (for single lat)
-                f1_mean, f2_mean = np.mean(shifted_f1_valid), np.mean(shifted_f2_valid)
-                f1_std, f2_std   = np.std(shifted_f1_valid), np.std(shifted_f2_valid)
-                
-                # Standardize valid data
-                f1_normalized = (shifted_f1_valid - f1_mean) / f1_std
-                f2_normalized = (shifted_f2_valid - f2_mean) / f2_std
-
-                # Normalize valid data using conventional normalization method. Comment if not using and vice versa with above...
-                # f1_normalized = shifted_f1_valid / np.nanmax(shifted_f1_valid)
-                # f2_normalized = shifted_f2_valid / np.nanmax(shifted_f2_valid)
-        
-                # Perform 1D cross-correlation between the two normalized maps
-                corr = correlate(f1_normalized, f2_normalized, mode='full', method='auto')
-                lags = np.arange(-len(shifted_f1_valid) + 1, len(shifted_f2_valid))
-        
-                # Limit the lag range using the physical limit argument
-                lag_limit_indices = (lags >= -max_lag) & (lags <= max_lag)
-                corr_limited      = corr[lag_limit_indices]
-                lags_limited      = lags[lag_limit_indices]
-                
-                # Find the lag with maximum correlation
-                max_corr_index = np.argmax(corr_limited) # index of best correlative strength within the physically limited lag range
-                best_lag       = lags_limited[max_corr_index]
-                
-                # save the maximum correlation coefficient as a measure of confidence
-                pearson_corr = np.corrcoef(f1_normalized, f2_normalized)[0, 1]
-                # max_corr_lim_slide.append([pearson_corr]) #np.max(corr_limited)
-                max_corr_lim_slide[l+lat_delta_indices[0], in_func_counter] = pearson_corr #np.max(corr_limited)
-        
-                # Compute the angular shift; convert from pixel lag to a physical lag
-                delta_long_in_lat_slide[l+lat_delta_indices[0], in_func_counter] = best_lag * delta_long_step  # Assumes uniform spacing
-            
-            # update the index for num_of_possible_shifts (axis = 1 for delta_long_in_lat_slide and max_corr_lim_slide)
-            in_func_counter += 1
-        print('final in_func_counter: ', in_func_counter)
-        return delta_long_in_lat_slide, max_corr_lim_slide
-    
-    @staticmethod
     def detrend_ignore_nan(x):
         x = np.asarray(x, float)
         mask = ~np.isnan(x)
@@ -642,7 +460,248 @@ class ZWP_Class:
         return combined
     
     @staticmethod
-    def getFullLatitudinalCorrelation(cyl_map1, cyl_map2, long_array, lat_array, shift_long=90, crit_lat=60, margin=3, max_delta_long=10, force_shift=False, sliding_window_boolean=False, sliding_window_len=30, window_step=1, lat_res_tol=1e-2):
+    def generateErrors(shifted_f1, shifted_f2, estimated_lag, lat_array, lat_delta_indices, margin_applied_in_func_shifted, max_lag, delta_long_step):
+        
+        # use the mean lag for the full pair (remove the sliding window dependence if it exists)
+        if len(estimated_lag.shape) == 2:
+            # estimated_lag is in ∆-longitudes so divide by delta_long_step to get back to ∆-pixels
+            estimated_lag_across_lat = np.mean(estimated_lag, axis=1) / delta_long_step
+        else:
+            estimated_lag_across_lat = estimated_lag / delta_long_step
+            
+        error_array = np.zeros(len(lat_array))
+        fwhm_array  = np.zeros(len(lat_array))
+        
+        for l in range(len(lat_array[lat_delta_indices[0]:lat_delta_indices[1]])):
+            A = shifted_f1[l+lat_delta_indices[0], margin_applied_in_func_shifted.astype(bool)]
+            B = shifted_f2[l+lat_delta_indices[0], margin_applied_in_func_shifted.astype(bool)]
+            
+            # shift A forward by ∆-pix//2:
+            A_prime = np.roll(A, shift = -int(estimated_lag_across_lat[l+lat_delta_indices[0]] / 2))
+            # shift B backwards by ∆-pix//2:
+            B_prime = np.roll(B, shift = int(estimated_lag_across_lat[l+lat_delta_indices[0]] / 2))
+            
+            # Standardize the primes for correlation test...
+            A_prime_mean, A_prime_std = np.mean(A_prime), np.std(A_prime)
+            B_prime_mean, B_prime_std = np.mean(B_prime), np.std(B_prime)
+            A_prime_norm = (A_prime - A_prime_mean) / A_prime_std
+            B_prime_norm = (B_prime - B_prime_mean) / B_prime_std
+
+            # conventional normalization if needed. Uncomment if using the following and comment above...
+            # A_prime_norm = A_prime/np.nanmax(A_prime)
+            # B_prime_norm = B_prime/np.nanmax(B_prime)
+            
+            # Compute cross-correlation between the half-shifted arrays
+            correlation_result = correlate(A_prime_norm, B_prime_norm, mode='full', method='auto')
+            lags = np.arange(-len(A_prime) + 1, len(B_prime)) # total amount of possible lags that can be investigate prior to max_lag limit
+            
+            # Apply max lag threshold
+            valid_indices = (lags >= -max_lag) & (lags <= max_lag)
+            correlation_limited = correlation_result[valid_indices]
+            lags_limited = lags[valid_indices]
+            
+            # Find the lag where correlation peaks (error in estimated shift)
+            error_in_estimated_lag_across_lat_in_pix = lags_limited[np.argmax(correlation_limited)]
+            
+            # Convert to ∆-longitude uncertainty and populate output array
+            error_array[l+lat_delta_indices[0]] = error_in_estimated_lag_across_lat_in_pix * delta_long_step
+            
+            # Compute Full Width at Half Maximum (FWHM) as a more appropriate measure of confidence
+            half_max = np.max(correlation_limited) / 2
+            fwhm_lags = lags_limited[correlation_limited > half_max] # indices where the correlation is above the FWHM
+            # 'fwhm' is the pixel range of the peak correlation - shows how unsure it is by capturing the extent of the spread
+            fwhm_in_pix = np.max(fwhm_lags) - np.min(fwhm_lags) if len(fwhm_lags) > 1 else 0 # Zero if peak is very well defined
+            # fwhm_in_degrees
+            fwhm_array[l+lat_delta_indices[0]] = fwhm_in_pix * delta_long_step
+
+        return error_array, fwhm_array
+    
+    @staticmethod
+    def fullCorrelation(shifted_f1, shifted_f2, lat_array, lat_delta_indices, margin_applied_in_func_shifted, final_longitudes_masked_shifted, max_lag, max_corr_lim, delta_long_in_lat, delta_long_step):
+
+        # Main correlation loop...sort of like a kai-square minimization.
+        # Within these latidude range, the values are defined and away from the NaNs
+        print('Entered sub function')
+        for l in range(len(lat_array[lat_delta_indices[0]:lat_delta_indices[1]])):
+            # the .astype(bool) just converts the [0, 0, 1, 1] to [False, False, True, True]
+            shifted_f1_valid = shifted_f1[l+lat_delta_indices[0], margin_applied_in_func_shifted.astype(bool)]
+            shifted_f2_valid = shifted_f2[l+lat_delta_indices[0], margin_applied_in_func_shifted.astype(bool)]
+            # valid_longitudes = final_longitudes_masked_shifted[margin_applied_in_func_shifted.astype(bool)]
+            
+            # Compute mean and standard deviation of valid values (for single lat)
+            f1_mean, f2_mean = np.mean(shifted_f1_valid), np.mean(shifted_f2_valid)
+            f1_std, f2_std   = np.std(shifted_f1_valid), np.std(shifted_f2_valid)
+            
+            # Standardize valid data
+            f1_normalized = (shifted_f1_valid - f1_mean) / f1_std
+            f2_normalized = (shifted_f2_valid - f2_mean) / f2_std
+
+            # Normalize valid data using conventional normalization method. Comment if not using and vice versa with above...
+            # f1_normalized = shifted_f1_valid / np.nanmax(shifted_f1_valid)
+            # f2_normalized = shifted_f2_valid / np.nanmax(shifted_f2_valid)
+    
+            # Perform 1D cross-correlation between the two normalized maps
+            corr = correlate(f1_normalized, f2_normalized, mode='full', method='auto')
+            lags = np.arange(-len(shifted_f1_valid) + 1, len(shifted_f2_valid))
+    
+            # Limit the lag range using the physical limit argument
+            lag_limit_indices = (lags >= -max_lag) & (lags <= max_lag)
+            corr_limited      = corr[lag_limit_indices]
+            lags_limited      = lags[lag_limit_indices]
+            
+            # Find the lag with maximum correlation
+            max_corr_index = np.argmax(corr_limited) # index of best correlative strength within the physically limited lag range
+            best_lag       = lags_limited[max_corr_index]
+            
+            # save the maximum correlation coefficient as a measure of confidence
+            pearson_corr = np.corrcoef(f1_normalized, f2_normalized)[0, 1]
+            max_corr_lim[l+lat_delta_indices[0]] = pearson_corr #np.max(corr_limited)
+    
+            # Compute the angular shift; convert from pixel lag to a physical lag
+            delta_long_in_lat[l+lat_delta_indices[0]] = best_lag * delta_long_step  # Assumes uniform spacing
+        
+        return delta_long_in_lat, max_corr_lim
+    
+    
+    @staticmethod
+    def SlidingWindowCorrelation(sliding_window_len, window_step, shifted_f1, shifted_f2, lat_array, lat_delta_indices, margin_applied_in_func_shifted, final_longitudes_masked_shifted, max_lag, delta_long_step, stagger=False, sigma_thresh_stagger = 1.25):
+        '''
+        Enter if using the sliding window approach. A smaller window is defined within each image pair using 
+        margin_applied_in_func_shifted. Each window will result in an individual correlation
+        '''
+        window_step_in_pixels        = int(np.ceil(window_step / delta_long_step))
+        sliding_window_len_in_pixels = int(np.ceil(sliding_window_len / delta_long_step))  
+        # print(window_step_in_pixels, sliding_window_len_in_pixels)
+        
+        # indices of where the full longitude range is defined post-margin and shift.
+        loc = np.where(abs(np.diff(margin_applied_in_func_shifted)) == 1)[0]
+        print('loc: ', loc[0], loc[1])
+        # how many shifts are possible given the sliding window size and the size of the slide
+        num_of_possible_shifts = (loc[-1] - loc[0] - sliding_window_len_in_pixels) // window_step_in_pixels
+        
+        # in_func_counter always ends up being 110 (for sliding_window_len=30) as both, sliding_window_len_in_pixels and 
+        # window_step_in_pixels are increased when the resolution is increased. So the amount of steps is the same.
+        # +1 is needed because num_of_possible_shifts is 109 (excludes the final step so it must be added explicitly).
+        delta_long_in_lat_slide = np.zeros((len(lat_array), num_of_possible_shifts + 1))
+        max_corr_lim_slide      = np.zeros((len(lat_array), num_of_possible_shifts + 1))
+        
+        in_func_counter = 0 # serves as the primary index for the num_of_possible_shifts since we have used a while loop
+        RHS_bound = loc[0] # right bound of sliding window
+        
+        print('possible shifts :', num_of_possible_shifts, 'window len in pix', sliding_window_len_in_pixels, 'window step in pix', window_step_in_pixels, 'loc 0, -1, and diff. ', loc[0], loc[-1], loc[-1]-loc[0])
+
+        # stuff for stagger selection criteria:
+        hm1 = shifted_f1[lat_delta_indices[0]:lat_delta_indices[1], margin_applied_in_func_shifted.astype(bool)]
+        hm2 = shifted_f2[lat_delta_indices[0]:lat_delta_indices[1], margin_applied_in_func_shifted.astype(bool)]
+        print('hm1.shape, hm2.shape', hm1.shape, hm2.shape)
+        # normalize the relevant 2D range for each map - pretty general normalization to bring data between [0-1]::
+        norm_heatmap_1 = (hm1 - np.nanmin(hm1)) / (np.nanmax(hm1) - np.nanmin(hm1))
+        norm_heatmap_2 = (hm2 - np.nanmin(hm2)) / (np.nanmax(hm2) - np.nanmin(hm2))
+        # individual median profile comparison:
+        median_profile_1 = np.nanmedian(norm_heatmap_1, axis=1)
+        median_profile_2 = np.nanmedian(norm_heatmap_2, axis=1)
+        # kernel sizes for median filters need to be odd. Make this more dynamic later but whatever for now...
+        if len(lat_array) >= 200:
+            # jet width of NEB region is about 20˚ so I'm using 2*NEB_jet_width for the kernel size to smooth it out - otherwise, good areas with high signal across all longitudes won't satisfy the selection threshold
+            ks = 41
+        else:
+            ks = 21
+        # median pixel values across latitudes (1D profile - smaller than the full lat_array as it is already clipped so be careful with the indexing...)
+        despiked_prof_1 = sp.signal.medfilt(median_profile_1, ks)
+        despiked_prof_2 = sp.signal.medfilt(median_profile_2, ks)
+
+        if stagger:
+            print('len of lat_array: ', len(lat_array))
+            stg_score_mat = np.zeros((2, len(lat_array[lat_delta_indices[0]:lat_delta_indices[1]]), num_of_possible_shifts + 1))
+            # stagger_bool also stores the RHS_bound so that the stagger windows can be visualized at the end...
+            stagger_bool = np.zeros((2, len(lat_array[lat_delta_indices[0]:lat_delta_indices[1]]), num_of_possible_shifts + 1))
+        
+        # Window slide loop... (using the defined longitudes to step along the axis)
+        while RHS_bound + sliding_window_len_in_pixels <= loc[-1]:
+            aux_bool = np.zeros_like(margin_applied_in_func_shifted)
+            aux_bool[RHS_bound + 1:RHS_bound + 1 + sliding_window_len_in_pixels] = 1
+            # RHS_bound += window_step_in_pixels # moved below...
+            # print(in_func_counter, RHS_bound)
+
+            # if stagger: # if 'stagger window' is on, generate irregularity scores to generate a weight matrix
+            #     stg_score_mat[0, :, in_func_counter] = ZWP_Class.irregularity_scores(shifted_f1[lat_delta_indices[0]:lat_delta_indices[1], aux_bool.astype(bool)])
+            #     stg_score_mat[1, :, in_func_counter] = ZWP_Class.irregularity_scores(shifted_f2[lat_delta_indices[0]:lat_delta_indices[1], aux_bool.astype(bool)])
+            
+            # Main correlation loop...simple z-score metric - being used for each window here
+            # Within these latidude range, the values are defined and away from the NaNs
+            for l in range(len(lat_array[lat_delta_indices[0]:lat_delta_indices[1]])):
+                # the .astype(bool) just converts the [0, 0, 1, 1] to [False, False, True, True]
+                shifted_f1_valid = shifted_f1[l+lat_delta_indices[0], aux_bool.astype(bool)]
+                shifted_f2_valid = shifted_f2[l+lat_delta_indices[0], aux_bool.astype(bool)]
+                # valid_longitudes = final_longitudes_masked_shifted[margin_applied_in_func_shifted.astype(bool)]
+                
+                # Compute mean and standard deviation of valid values (for single lat)
+                f1_mean, f2_mean = np.mean(shifted_f1_valid), np.mean(shifted_f2_valid)
+                f1_std, f2_std   = np.std(shifted_f1_valid), np.std(shifted_f2_valid)
+                
+                # Standardize valid data
+                f1_normalized = (shifted_f1_valid - f1_mean) / f1_std
+                f2_normalized = (shifted_f2_valid - f2_mean) / f2_std
+
+                # Normalize valid data using conventional normalization method. Comment if not using and vice versa with above...
+                # f1_normalized = shifted_f1_valid / np.nanmax(shifted_f1_valid)
+                # f2_normalized = shifted_f2_valid / np.nanmax(shifted_f2_valid)
+                
+                if stagger:
+                    # sigma_thresh_stagger defines how large the max peak can be beyond the median of the specific latitude.
+                    # print('aux_bool.shape: ', aux_bool.shape, 'aux_bool_sum: ', np.sum(aux_bool))
+                    # signal_1, signal_2 = norm_heatmap_1[l, aux_bool.astype(bool)], norm_heatmap_1[l, aux_bool.astype(bool)]
+                    # NOTE: the following is a bit confusing so read below:
+                    # aux_bool is sized for the full longitudinal span, but the hm1/2 is defined only for the areas that are well defined and work so
+                    # they are a subset of the full span along axis=1. Thus, each signal_1/2 extracted should correspond to the correct shifted_f1/2_valid
+                    # array otherwise this "weighting" matrix will be erroneously indexed. Note that int(np.sum(aux_bool)) should sum to sliding_window_len_in_pixels
+                    # As in_func_counter is the primary slide index, it functions as a counter for the appropriate staggered slide along each latitude as well with window_step_in_pixels
+                    # as a multiple...
+                    stt  = window_step_in_pixels * in_func_counter
+                    endd = sliding_window_len_in_pixels + stt
+                    signal_1, signal_2 = norm_heatmap_1[l, stt:endd], norm_heatmap_1[l, stt:endd]
+                    print(l, signal_1.shape, signal_2.shape, in_func_counter)
+                    stagger_bool[1, l, in_func_counter] = RHS_bound + 1 # right bound of main sliding window
+                    # define the condition as the INTERSECTION of the booleans (try out UNION later as well)
+                    if (np.nanmax(signal_1) >= sigma_thresh_stagger * despiked_prof_1[l]) & (np.nanmax(signal_2) >= sigma_thresh_stagger * despiked_prof_2[l]):
+                        stagger_bool[0, l, in_func_counter] = 1
+                    elif signal_1.size == 0 or signal_2.size == 0:
+                        stagger_bool[0, l, in_func_counter] = 0 # this one is just a check against empties - occurred prior due to incorrect stt:end indexing...
+                    else:
+                        stagger_bool[0, l, in_func_counter] = 0
+
+                # Perform 1D cross-correlation between the two normalized maps
+                corr = correlate(f1_normalized, f2_normalized, mode='full', method='auto')
+                lags = np.arange(-len(shifted_f1_valid) + 1, len(shifted_f2_valid))
+        
+                # Limit the lag range using the physical limit argument
+                lag_limit_indices = (lags >= -max_lag) & (lags <= max_lag)
+                corr_limited      = corr[lag_limit_indices]
+                lags_limited      = lags[lag_limit_indices]
+                
+                # Find the lag with maximum correlation
+                max_corr_index = np.argmax(corr_limited) # index of best correlative strength within the physically limited lag range
+                best_lag       = lags_limited[max_corr_index]
+                
+                # save the maximum correlation coefficient as a measure of confidence
+                pearson_corr = np.corrcoef(f1_normalized, f2_normalized)[0, 1]
+                # max_corr_lim_slide.append([pearson_corr]) #np.max(corr_limited)
+                max_corr_lim_slide[l+lat_delta_indices[0], in_func_counter] = pearson_corr #np.max(corr_limited)
+        
+                # Compute the angular shift; convert from pixel lag to a physical lag
+                delta_long_in_lat_slide[l+lat_delta_indices[0], in_func_counter] = best_lag * delta_long_step  # Assumes uniform spacing
+            
+            # update the index for num_of_possible_shifts (axis = 1 for delta_long_in_lat_slide and max_corr_lim_slide)
+            in_func_counter += 1
+            RHS_bound += window_step_in_pixels
+        print('final in_func_counter: ', in_func_counter)
+        if stagger:
+            return delta_long_in_lat_slide, max_corr_lim_slide, stagger_bool
+        else:
+            return delta_long_in_lat_slide, max_corr_lim_slide
+    
+    @staticmethod
+    def getFullLatitudinalCorrelation(cyl_map1, cyl_map2, long_array, lat_array, shift_long=90, crit_lat=60, margin=3, max_delta_long=10, force_shift=False, sliding_window_boolean=False, sliding_window_len=30, window_step=1, stagger=False, std_stagger=1.25, lat_res_tol=1e-2):
         '''
         Main function for zonal wind generation. Parameters defined below.
     
@@ -747,13 +806,21 @@ class ZWP_Class:
         # when sliding_window_boolean=False...
         if sliding_window_boolean:
             '''Enter sliding window mode - additional slide parameters must be defined'''
-            delta_long_in_lat_slide, max_corr_lim_slide = ZWP_Class.SlidingWindowCorrelation(sliding_window_len, window_step, shifted_f1, shifted_f2, 
-                                                                                             lat_array, lat_delta_indices, margin_applied_in_func_shifted, 
-                                                                                             final_longitudes_masked_shifted, max_lag, delta_long_step)
+            if stagger:
+                delta_long_in_lat_slide, max_corr_lim_slide, stagger_bool = ZWP_Class.SlidingWindowCorrelation(sliding_window_len, window_step, shifted_f1, shifted_f2, 
+                                                                                                lat_array, lat_delta_indices, margin_applied_in_func_shifted, 
+                                                                                                final_longitudes_masked_shifted, max_lag, delta_long_step, stagger=stagger, sigma_thresh_stagger = std_stagger)
+            else:
+                delta_long_in_lat_slide, max_corr_lim_slide = ZWP_Class.SlidingWindowCorrelation(sliding_window_len, window_step, shifted_f1, shifted_f2, 
+                                                                                                lat_array, lat_delta_indices, margin_applied_in_func_shifted, 
+                                                                                                final_longitudes_masked_shifted, max_lag, delta_long_step)
             
             error_array, fwhm_array = ZWP_Class.generateErrors(shifted_f1, shifted_f2, delta_long_in_lat_slide, lat_array, lat_delta_indices, margin_applied_in_func_shifted, max_lag, delta_long_step)
             
-            return shifted_f1, shifted_f2, shifted_BIM, margin_applied_in_func_shifted, final_longitudes_masked_shifted, delta_long_in_lat_slide, max_corr_lim_slide, error_array, fwhm_array
+            if stagger:
+                return shifted_f1, shifted_f2, shifted_BIM, margin_applied_in_func_shifted, final_longitudes_masked_shifted, delta_long_in_lat_slide, max_corr_lim_slide, error_array, fwhm_array, stagger_bool
+            else:
+                return shifted_f1, shifted_f2, shifted_BIM, margin_applied_in_func_shifted, final_longitudes_masked_shifted, delta_long_in_lat_slide, max_corr_lim_slide, error_array, fwhm_array
         
         else:
             '''Sub-function that calculates the correlation over the entire longitudinal range (no sliding window)'''
