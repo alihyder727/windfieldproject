@@ -206,8 +206,10 @@ class ZWP_Class:
         '''
         if lat_value:
             print('Speed at latitude: ', lat_value)
-            # R_J*(1 - oblateness*np.sin(lat_array*np.pi/180)**2)
-        radius_in_lat = R_J*(1 - oblateness*np.sin(lat_array*np.pi/180)**2) # radius in meters at specific latitude
+        # R_J*(1 - oblateness*np.sin(lat_array*np.pi/180)**2)
+        # radius_in_lat = R_J*(1 - oblateness*np.sin(lat_array*np.pi/180)**2) # radius in meters at specific latitude
+        # using general oblateness formula (Raul's document has a typo - uses sin twice... chrome-extension://efaidnbmnnnibpcajpcglclefindmkaj/https://ntrs.nasa.gov/api/citations/20210022719/downloads/RMJ_Osc_310821.pdf)
+        radius_in_lat = R_J * R_J_p / (np.sqrt(R_J**2 * np.sin(lat_array*np.pi/180)**2 + R_J_p**2 * np.cos(lat_array*np.pi/180)**2))
         return (delta_longitude / 360) * 2*np.pi*radius_in_lat # in meters
 
     @staticmethod
@@ -299,6 +301,23 @@ class ZWP_Class:
             margin_applied[stop_margin:stop_margin - delta_margin_in_indices:-1]     = False
     
         return margin_applied # 1D array
+
+    @staticmethod
+    def getSubPixErr(err_arr, long_array, lat_arr, NS_bounding_lat=20.0, sigma_clip=3):
+        delta_long_step   = abs(long_array[150] - long_array[149])
+        clipped_error_arr, _, _ = sp.stats.sigmaclip(err_arr/delta_long_step, sigma_clip)
+        S20_ind, S20_val = ZWP_Class.closestIndex2Lat(lat_arr, -NS_bounding_lat)
+        N20_ind, N20_val = ZWP_Class.closestIndex2Lat(lat_arr, NS_bounding_lat)
+        region_mean, region_std = np.mean(clipped_error_arr[S20_ind:N20_ind+1]), np.std(clipped_error_arr[S20_ind:N20_ind+1])
+        print('Mean and std of ∆x_pixels at the sub-pixel level post sigma clipping: ', region_mean, region_std)
+
+    @staticmethod
+    def getWindErratSubPix(subpix_std, arcsec_jup, delta_t, arcsec_per_pix_spex=0.12):
+        # subpix_std is the std at the sub-pixel level post sigma clipping
+        Linear_scale_on_J = arcsec_per_pix_spex * R_J*2 / arcsec_jup # taken at equator - instrument spatial resolution in m/pix
+        wind_err = subpix_std * Linear_scale_on_J / delta_t # typical wind error in m/s
+        return wind_err
+
 
     @staticmethod
     def getInterpolatedArray(x, y, y_new):
@@ -602,7 +621,7 @@ class ZWP_Class:
         median_profile_2 = np.nanmedian(norm_heatmap_2, axis=1)
         # kernel sizes for median filters need to be odd. Make this more dynamic later but whatever for now...
         if len(lat_array) >= 200:
-            # jet width of NEB region is about 20˚ so I'm using 2*NEB_jet_width for the kernel size to smooth it out - otherwise, good areas with high signal across all longitudes won't satisfy the selection threshold
+            # jet width of NEB region is about 10˚ so I'm using 2*NEB_jet_width for the kernel size to smooth it out - otherwise, good areas with high signal across all longitudes won't satisfy the selection threshold
             ks = 41
         else:
             ks = 21
