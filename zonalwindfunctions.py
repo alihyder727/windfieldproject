@@ -26,6 +26,7 @@ from scipy import fftpack, ndimage, stats, signal
 
 R_J   = 71492e3 # m
 R_J_p = 66854e3 # m
+Omega_J = 1.7734080652433437e-4 # 1/s
 
 oblateness = (R_J - R_J_p) / R_J # Jupiter oblateness
 eccentricity = np.sqrt((R_J**2 - R_J_p**2) / R_J**2) # Jupiter eccentricity
@@ -62,6 +63,15 @@ class ZWP_Class:
         ratio_radii = (R_J_p/R_J)**2
         return np.arctan(np.tan(graphic_lat_array_rad) * ratio_radii)
         
+    @staticmethod
+    def customWeightedAvg(main_mat, weight_mat):
+        weighted_wind = np.zeros(main_mat.shape[0])
+        for l in range(main_mat.shape[0]):
+            if np.sum(weight_mat[l, :]) <= 1:
+                weighted_wind[l] = np.nan
+            else:
+                weighted_wind[l] = np.sum(weight_mat[l, :] * main_mat[l, :]) / np.sum(weight_mat[l, :])
+        return weighted_wind
     
     @staticmethod
     def checkMapResolution(map1, map2, print_out=False):
@@ -200,6 +210,15 @@ class ZWP_Class:
         return (d_obj[-1] - d_obj[0]).total_seconds()
 
     @staticmethod
+    def getKuoCriterion(u_arr, lat_array):
+        radius_in_lat = R_J * R_J_p / (np.sqrt(R_J**2 * np.sin(lat_array*np.pi/180)**2 + R_J_p**2 * np.cos(lat_array*np.pi/180)**2))
+        y_coord = radius_in_lat * np.deg2rad(lat_array) # conversion of equirentangular cylindrical map to cartesian
+        beta = 2 * Omega_J * np.cos(np.deg2rad(lat_array)) / radius_in_lat
+        dudy = np.gradient(u_arr, y_coord)  # First derivative.
+        d2udy2 = np.gradient(dudy, y_coord)  # Second derivative.
+        return beta, d2udy2, beta-d2udy2
+
+    @staticmethod
     def getDeltaXfromLat(delta_longitude, lat_array, lat_value=None):
         '''
         Get the latitudinally dependent ∆x from ∆-longitude
@@ -310,6 +329,7 @@ class ZWP_Class:
         N20_ind, N20_val = ZWP_Class.closestIndex2Lat(lat_arr, NS_bounding_lat)
         region_mean, region_std = np.mean(clipped_error_arr[S20_ind:N20_ind+1]), np.std(clipped_error_arr[S20_ind:N20_ind+1])
         print('Mean and std of ∆x_pixels at the sub-pixel level post sigma clipping: ', region_mean, region_std)
+        return region_mean, region_std
 
     @staticmethod
     def getWindErratSubPix(subpix_std, arcsec_jup, delta_t, arcsec_per_pix_spex=0.12):
@@ -679,7 +699,7 @@ class ZWP_Class:
                     stt  = window_step_in_pixels * in_func_counter
                     endd = sliding_window_len_in_pixels + stt
                     signal_1, signal_2 = norm_heatmap_1[l, stt:endd], norm_heatmap_1[l, stt:endd]
-                    print(l, signal_1.shape, signal_2.shape, in_func_counter)
+                    # print(l, signal_1.shape, signal_2.shape, in_func_counter)
                     stagger_bool[1, l, in_func_counter] = RHS_bound + 1 # right bound of main sliding window
                     # define the condition as the INTERSECTION of the booleans (try out UNION later as well)
                     if (np.nanmax(signal_1) >= sigma_thresh_stagger * despiked_prof_1[l]) & (np.nanmax(signal_2) >= sigma_thresh_stagger * despiked_prof_2[l]):
