@@ -24,9 +24,10 @@ import datetime
 # import os
 from scipy import fftpack, ndimage, stats, signal
 
-R_J   = 71492e3 # m
-R_J_p = 66854e3 # m
+R_J     = 71492e3 # m
+R_J_p   = 66854e3 # m
 Omega_J = 1.7734080652433437e-4 # 1/s
+mu_J    = 2.222 # g/mol
 
 oblateness = (R_J - R_J_p) / R_J # Jupiter oblateness
 eccentricity = np.sqrt((R_J**2 - R_J_p**2) / R_J**2) # Jupiter eccentricity
@@ -218,6 +219,27 @@ class ZWP_Class:
         d2udy2 = np.gradient(dudy, y_coord)  # Second derivative.
         return beta, d2udy2, beta-d2udy2
 
+    @staticmethod
+    def getKuoUncertainty(sig_u, lat_array):
+        radius_in_lat = R_J * R_J_p / (np.sqrt(R_J**2 * np.sin(lat_array*np.pi/180)**2 + R_J_p**2 * np.cos(lat_array*np.pi/180)**2))
+        y = radius_in_lat * np.deg2rad(lat_array) # conversion of equirentangular cylindrical map to cartesian
+        sig2 = np.zeros_like(sig_u)
+        for i in range(1, len(sig_u)-1):
+            dy = (y[i+1] - y[i-1]) / 2
+            sig2[i] = np.sqrt(sig_u[i+1]**2 + 4*sig_u[i]**2 + sig_u[i-1]**2) / dy**2
+        sig2[0]  = np.nan
+        sig2[-1] = np.nan
+        return sig2
+    
+    @staticmethod
+    def getThermalWinddelTdelY(lat_array, hst_lat_graphic, u_irtf, u_hst, p0, p1):
+        hst_lat     = np.rad2deg(ZWP_Class.planeto_Graphic2Centric(R_J, R_J_p, hst_lat_graphic))
+        u_hst_low   = ZWP_Class.getInterpolatedArray(hst_lat, u_hst, lat_array)
+        coriolis    = 2*Omega_J*np.sin(np.deg2rad(lat_array))
+        R_gas       = 8.314 # J/(mol K)
+        R_spec      = R_gas / (mu_J/1e3)
+        return (coriolis/R_spec) * (u_hst_low - u_irtf) / (np.log(p1/p0))
+    
     @staticmethod
     def getDeltaXfromLat(delta_longitude, lat_array, lat_value=None):
         '''
