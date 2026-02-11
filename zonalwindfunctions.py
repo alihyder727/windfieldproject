@@ -28,6 +28,7 @@ R_J     = 71492e3 # m
 R_J_p   = 66854e3 # m
 Omega_J = 1.7734080652433437e-4 # 1/s
 mu_J    = 2.222 # g/mol
+a_J     = R_J**2 / R_J_p
 
 oblateness = (R_J - R_J_p) / R_J # Jupiter oblateness
 eccentricity = np.sqrt((R_J**2 - R_J_p**2) / R_J**2) # Jupiter eccentricity
@@ -239,6 +240,15 @@ class ZWP_Class:
         R_gas       = 8.314 # J/(mol K)
         R_spec      = R_gas / (mu_J/1e3)
         return (coriolis/R_spec) * (u_hst_low - u_irtf) / (np.log(p1/p0))
+    
+    @staticmethod
+    def getEQTWEdTdY(lat_array, hst_lat_graphic, u_irtf, u_hst, p0, p1):
+        hst_lat     = np.rad2deg(ZWP_Class.planeto_Graphic2Centric(R_J, R_J_p, hst_lat_graphic))
+        u_hst_low   = ZWP_Class.getInterpolatedArray(hst_lat, u_hst, lat_array)
+        coriolis_0    = 2*Omega_J 
+        R_gas       = 8.314 # J/(mol K)
+        R_spec      = R_gas / (mu_J/1e3)
+        return (coriolis_0 * a_J/R_spec) * (u_hst_low - u_irtf) / (np.log(p1/p0))
     
     @staticmethod
     def getDeltaXfromLat(delta_longitude, lat_array, lat_value=None):
