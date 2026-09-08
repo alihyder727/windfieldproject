@@ -260,7 +260,8 @@ class ZWP_Class:
         # R_J*(1 - oblateness*np.sin(lat_array*np.pi/180)**2)
         # radius_in_lat = R_J*(1 - oblateness*np.sin(lat_array*np.pi/180)**2) # radius in meters at specific latitude
         # using general oblateness formula (Raul's document has a typo - uses sin twice... chrome-extension://efaidnbmnnnibpcajpcglclefindmkaj/https://ntrs.nasa.gov/api/citations/20210022719/downloads/RMJ_Osc_310821.pdf)
-        radius_in_lat = R_J * R_J_p / (np.sqrt(R_J**2 * np.sin(lat_array*np.pi/180)**2 + R_J_p**2 * np.cos(lat_array*np.pi/180)**2))
+        # radius_in_lat = R_J * R_J_p / (np.sqrt(R_J**2 * np.sin(lat_array*np.pi/180)**2 + R_J_p**2 * np.cos(lat_array*np.pi/180)**2)) # RADIUS TO CENTER
+        radius_in_lat = R_J * np.cos(lat_array*np.pi/180) # ZONAL RADIUS
         return (delta_longitude / 360) * 2*np.pi*radius_in_lat # in meters
 
     @staticmethod
